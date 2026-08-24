@@ -1,33 +1,22 @@
 
-import pyVIA.core as via #core module of pyVIA (a trajectory inference tool for single-cell data)
-import pandas as pd #pandas library (for data manipulation and analysis)
-import numpy as np #numpy library (for numerical computing)
-import scanpy as sc #scanpy library (a toolkit for analyzing single-cell gene expression data)
-import scanpy.external as sce #external extensions of scanpy (additional community-contributed tools)
-import anndata as ad #anndata library (used for handling annotated data matrices, commonly used with scanpy)
-import umap #umap library (for dimensionality reduction using UMAP)
-import phate #phate library (a tool for visualizing high-dimensional data)
-import matplotlib.pyplot as plt #pyplot module from matplotlib (for plotting)
-import matplotlib as mpl #base matplotlib library (for additional customization)
+import pyVIA.core as via 
+import pandas as pd 
+import numpy as np 
+import scanpy as sc 
+import matplotlib.pyplot as plt 
+import matplotlib as mpl 
 mpl.use('Agg')
-from matplotlib.pyplot import rc_context #rc_context from matplotlib.pyplot, which allows temporary runtime configuration changes.
-import seaborn as sns #seaborn library (for statistical data visualization) 
-import warnings #handling warnings in Python
-import sys, os, glob #system-specific functions, operating system interactions, file path pattern matching
-from sklearn.manifold import TSNE #TSNE (t-Distributed Stochastic Neighbor Embedding) function
-warnings.filterwarnings('ignore') #Suppresses all warning messages
-from importlib import reload #dynamically reload modules during development
+import warnings 
+warnings.filterwarnings('ignore') 
 from datetime import datetime
 import random
-from collections import defaultdict
 import scvelo as scv
-import csv
 import matplotlib.cm as cm
 
-from flask import jsonify
 from io import BytesIO
 import base64
-import json
+from params import VIAParams, JobConfig
+from anndata import AnnData
 
 # Plotting Lieneage Probability, Gene Trend Heatmaps, and Gene Expression (needs v0 object!!!)
 def more_plot(lineages, genes, v0, adata):
@@ -75,7 +64,7 @@ def more_plot(lineages, genes, v0, adata):
     except Exception as e:
         return {'error': str(e)}
 
-def via_plot(params, v0, file_data, adata=None, embedding=None):
+def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, embedding=None):
     try: 
         print("=== VIA_PLOT FUNCTION START ===")
         print(f"v0 is None: {v0 is None}")
@@ -83,71 +72,18 @@ def via_plot(params, v0, file_data, adata=None, embedding=None):
         print(f"params keys: {list(params.keys())}")
         print(f"file_data keys: {list(file_data.keys()) if file_data else 'None'}")
 
-        var_names = params.get('var_names', None)
-        dpi = int(params.get('dpi', 180))
-        time_series_labels = params.get('time_series_labels', None)
-        knn = int(params.get('knn', 30))
-        true_label = params.get('true_label', None)
+        var_names = params.varNames
+        dpi = params.dpi
+        knn = params.knn
+        time_series_labels = file_data.metadata.get("time_series")
+        true_label = file_data.metadata.get("annotation")
         
-        data_categories = params.get('par_option', [])
+        data_categories = params.parOption
         use_velocity = 'rna-velocity' in data_categories
         do_spatial = 'spatial-temporal' in data_categories
-        do_cytomtetry = 'cytometry' in data_categories
-        # Create an empty plot object 
+        do_cytometry = 'cytometry' in data_categories
+
         plots = {}
-
-        if file_data is not None: 
-            time_series_file = file_data.get('time-upload')
-            true_label_file = file_data.get('csv-upload')
-
-        if time_series_file:
-            try:
-                time_series_labels = []
-                reader = csv.reader(time_series_file)
-                for row in reader:
-                    if row:  
-                        time_series_labels.append(row[0])  
-                if all(item.lstrip('-').isdigit() for item in time_series_labels):
-                    time_series_labels = [int(item) for item in time_series_labels]
-            except Exception as e:
-                print(f"Error processing true_label CSV: {e}")
-                time_series_labels = None
-        else: 
-            if time_series_labels and isinstance(time_series_labels, str):
-                if time_series_labels.lower() == 'none':
-                    time_series_labels = None
-                else:
-                    try:
-                        time_series_labels = [int(i.strip()) for i in time_series_labels.split(',') 
-                                        if i.strip().isdigit()]
-                    except Exception as e:
-                        print(f"Error processing time_series_labels: {e}")
-                        time_series_labels = None
-
-        if true_label_file:
-            try:
-                true_label = []
-                reader = csv.reader(true_label_file)
-                for row in reader:
-                    if row:  
-                        true_label.append(row[0])  
-                if all(item.lstrip('-').isdigit() for item in true_label):
-                    true_label = [int(item) for item in true_label]
-            except Exception as e:
-                print(f"Error processing true_label CSV: {e}")
-                true_label = None
-        else: 
-            if true_label and isinstance(true_label, str):
-                if true_label.lower() == 'none':
-                    true_label = None
-                else:
-                    try:
-                        true_label = [item.strip() for item in true_label.split(',')]
-                        if all(item.lstrip('-').isdigit() for item in true_label):
-                            true_label = [int(item) for item in true_label]
-                    except Exception as e:
-                        print(f"Error processing true_label: {e}")
-                        true_label = None
 
         # ATLAS PLOT
         try:
@@ -195,7 +131,7 @@ def via_plot(params, v0, file_data, adata=None, embedding=None):
         # Plot this if the user ticks 'RNA Velocity'
         if use_velocity: 
             try: 
-                velocity_adata = file_data.get('velocity_adata')
+                velocity_adata = file_data.metadata.get('velocity')
 
                 if var_names == 'None':
                     if len(velocity_adata.var_names) > 0:
@@ -308,7 +244,7 @@ def via_plot(params, v0, file_data, adata=None, embedding=None):
                 plt.close()
                 plots['mds'] = "data:image/png;base64," + base64.b64encode(mds_img.getvalue()).decode('utf-8')
     
-        if do_cytomtetry:
+        if do_cytometry:
             try:
                 print("=== STARTING CYTOMETRY PLOTTING ===")
                 

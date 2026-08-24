@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/plot_download_service.dart';
+import '../viewmodel/all_viewmodel.dart';
 
 class DownloadPlotsButton extends StatefulWidget {
-  final Map<String, String> plotData;
-  final String? jobId;
-
-  const DownloadPlotsButton({
-    super.key,
-    required this.plotData,
-    this.jobId,
-  });
+  const DownloadPlotsButton({super.key});
 
   @override
   State<DownloadPlotsButton> createState() => _DownloadPlotsButtonState();
@@ -21,18 +16,24 @@ class _DownloadPlotsButtonState extends State<DownloadPlotsButton> {
 
   @override
   Widget build(BuildContext context) {
-    print('PlotData keys: ${widget.plotData.keys}');
-    print('PlotData isEmpty: ${widget.plotData.isEmpty}');
-    print('PlotData: ${widget.plotData}');
+    final viewModel = context.watch<PipelineViewModel>();
+    final plotData = viewModel.plotData;
+    final jobId = viewModel.jobId;
 
-    final hasPlots = widget.plotData.isNotEmpty;
+    print('PlotData keys: ${plotData.keys}');
+    print('PlotData isEmpty: ${plotData.isEmpty}');
+    print('PlotData: $plotData');
+
+    final hasPlots = plotData.isNotEmpty;
 
     return Column(
       children: [
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _isLoading || !hasPlots ? null : _downloadPlots,
+            onPressed: _isLoading || !hasPlots 
+                ? null 
+                : () => _downloadPlots(plotData, jobId),
             icon: _isLoading
                 ? const SizedBox(
                     width: 20,
@@ -65,24 +66,26 @@ class _DownloadPlotsButtonState extends State<DownloadPlotsButton> {
     );
   }
 
-  Future<void> _downloadPlots() async {
+  Future<void> _downloadPlots(Map<String, String> plotData, String? jobId) async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
 
     await PlotDownloadService.downloadAllPlots(
-      plotData: widget.plotData,
-      fileName: widget.jobId != null 
-          ? 'plots_${widget.jobId}.zip' 
+      plotData: plotData,
+      fileName: jobId != null 
+          ? 'plots_$jobId.zip' 
           : 'all_plots.zip',
       onSuccess: () {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
         _showSnackBar('Plots downloaded successfully!', success: true);
       },
       onError: (error) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _error = error;

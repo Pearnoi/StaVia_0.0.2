@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';  // ← Make sure you have this import
+import 'package:lottie/lottie.dart';  
 import 'package:stavia_ff/widgets/lightdarkmode.dart';
 import '../widgets/navigation_drawer.dart';
 
