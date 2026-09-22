@@ -157,29 +157,30 @@ def upload_file(file: UploadFile = File(...)):
 
     for filename in files: 
         name_lower = filename.lower()
+        file_path = temp_dir / filename
 
         # TODO It's better to store these directly in adata rather than in jobs because of the file size. Should keep job lightweight 
         if 'time_series' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['time_series'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['time_series'] = pd.read_csv(file_path)
 
         if 'annotation' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['annotation'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['annotation'] = pd.read_csv(file_path)
 
         if 'spatial' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['spatial'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['spatial'] = pd.read_csv(file_path)
 
         if 'root' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['root'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['root'] = pd.read_csv(file_path)
 
         # TODO READ LOOM AND H5AD 
         if 'velocity' in name_lower and filename.endswith(('.csv', '.loom', '.h5ad')):
-            job.metadata['velocity'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['velocity'] = pd.read_csv(file_path)
 
         if 'cytometry_features' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['cytometry_features'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['cytometry_features'] = pd.read_csv(file_path)
 
         if 'cytometry_phase' in name_lower and filename.endswith(('.csv', '.tsv')):
-            job.metadata['cytometry_phase'] = pd.read_csv(zipfile.open(filename))
+            job.metadata['cytometry_phase'] = pd.read_csv(file_path)
 
     analyses = list({
         'time_series' if 'time_series' in f.lower() else

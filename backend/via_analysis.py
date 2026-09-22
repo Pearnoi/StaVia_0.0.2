@@ -4,6 +4,7 @@ import scanpy as sc
 import umap, phate, warnings, random
 import matplotlib as mpl 
 import traceback
+import numpy as np
 mpl.use('Agg')
 warnings.filterwarnings('ignore') 
 
@@ -16,8 +17,8 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
         cluster_graph_pruning = params.clusterGraphPruning
         edgepruning_clustering_resolution = params.edgePruningClusteringResolution
         edgebundle_pruning = params.edgeBundlePruning
-        adata_obs = params.obs 
-      
+        adata_obs = params.obs
+
         data_categories = params.parOption or []
         time_series = 'time-series' in data_categories
         use_velocity = 'rna-velocity' in data_categories
@@ -25,16 +26,57 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
         do_cytometry = 'cytometry' in data_categories
 
         metadata = file_data.metadata if (file_data and file_data.metadata) else {}
-        time_series_content = metadata.get('time_series')              
-        velocity_matrix_content = metadata.get('velocity')            
-        root_upload_content = metadata.get('root')                     
-        true_label_content = metadata.get('annotation')               
-        spatial_coords_content = metadata.get('spatial')     
-        cytometry_file_features = metadata.get('cytometry_features')             
-        cytometry_file_content = metadata.get('cytometry_phase')   
+
+        ###########################
+         # ----- Avoid data mismatch -----
+        def align_data_with_adata(data, adata):
+            if data is None:
+                return None
+            
+            if isinstance(data, pd.DataFrame):
+                # Use cell_id as index. Note that the files uploaded by the user should have a column named 'cell_id' that matches the cell names in adata.obs_names.
+                if 'cell_id' in data.columns:
+                    data = data.set_index('cell_id')
+                
+                # Only keep the cells that are present in both data and adata
+                valid_cells = data.index.intersection(adata.obs_names)
+
+                if len(valid_cells) == 0:
+                    print(f"Warning: No matching cells found in data")
+                    return None
+                
+                # Sort the data to match the order of adata.obs_names
+                aligned_data = data.loc[adata.obs_names].copy()
+                print(f"Aligned data: {len(aligned_data)} cells")
+                return aligned_data
+            
+            elif isinstance(data, np.ndarray):
+                # If data is a numpy array, we assume it is already aligned with adata. We can check the length.
+                if len(data) == adata.n_obs:
+                    return data
+                else:
+                    print(f"Warning: Data length {len(data)} does not match adata cells {adata.n_obs}")
+                    return None
+
+            #TODO: align genes.
+            return data
+        ##############################
+
+        #####no need to align#####
+        root_upload_content = metadata.get('root')
+        velocity_matrix_content = metadata.get('velocity')
+        cytometry_file_features = metadata.get('cytometry_features')          
+        cytometry_file_content = metadata.get('cytometry_phase')
+
+        #####need to align#####
+        time_series_content = align_data_with_adata(metadata.get('time_series'), adata)
+        true_label_content = align_data_with_adata(metadata.get('annotation'), adata)
+        spatial_coords_content = align_data_with_adata(metadata.get('spatial'), adata)
+
+        
 
         true_label = None
-        if true_label_content:
+        if true_label_content is not None:
             true_label = true_label_content
         else: 
             if "annotation" in adata.obs:
@@ -43,12 +85,25 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
                 true_label = adata.obs["PARC"]
             else: 
                 true_label = adata.obs.get(adata_obs)
+        if isinstance(true_label, pd.DataFrame):
+            true_label = true_label.iloc[:, 0]
+         
+        if time_series_content is not None:
+            time_series_labels = time_series_content
+        else:
+            time_series_content = None 
 
-        time_series_labels = time_series_content if time_series_content else None 
-        
-        if root_upload_content:
-            root_user = root_upload_content
-        else: 
+        dataset_type = ''
+        if root_upload_content is not None:
+            if isinstance(root_upload_content, pd.DataFrame):
+                root_user = root_upload_content.iloc[:, 0].tolist()
+            else:
+                root_user = list(root_upload_content)
+            print("root_user:", root_user)
+            if isinstance(root_user[0],str):
+                dataset_type = 'group'
+
+        else:
             gene = random.choice(adata.var_names.tolist())
             print(f"DEBUG: Selected random gene: '{gene}'")
             print(f"DEBUG: Gene type: {type(gene)}")
@@ -106,8 +161,8 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
 
         # --------- Spatial Analysis -----------
         if do_spatial:
-            if spatial_coords_content:
-                coords = spatial_coords_content
+            if spatial_coords_content is not None:
+                coords = spatial_coords_content.to_numpy()
             else:
                 coords=adata.obsm['X_pca'] 
 
@@ -190,6 +245,7 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
             embedding = adata.obsm['X_pca'][:,:ncomp]
     
         print('RUN VIA')
+
         v0 = via.VIA(embedding, true_label = true_label, memory = memory,
                     edgepruning_clustering_resolution=edgepruning_clustering_resolution, 
                     edgepruning_clustering_resolution_local=1, knn=knn,
@@ -205,7 +261,8 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
                     x_lazy=0.99, alpha_teleport=0.99, 
                     viagraph_decay = 1.0, 
                     preserve_disconnected=False,
-                    do_spatial_knn=do_spatial, do_spatial_layout= do_spatial, spatial_coords = coords, spatial_knn=spatial_knn_trajectory)
+                    do_spatial_knn=do_spatial, do_spatial_layout= do_spatial, spatial_coords = coords, spatial_knn=spatial_knn_trajectory,
+                    dataset = dataset_type)
         v0.run_VIA()
         if 'X_umap' in adata.obsm:
             v0.embedding = adata.obsm['X_umap'][:,:2]

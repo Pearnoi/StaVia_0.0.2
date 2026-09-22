@@ -69,8 +69,8 @@ def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, e
         print("=== VIA_PLOT FUNCTION START ===")
         print(f"v0 is None: {v0 is None}")
         print(f"adata is None: {adata is None}")
-        print(f"params keys: {list(params.keys())}")
-        print(f"file_data keys: {list(file_data.keys()) if file_data else 'None'}")
+        print(f"params keys: {list(params.__dict__.keys()) if hasattr(params, '__dict__') else 'N/A'}")
+        print(f"file_data keys: {list(file_data.metadata.keys()) if file_data.metadata else 'None'}")
 
         var_names = params.varNames
         dpi = params.dpi
@@ -109,7 +109,7 @@ def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, e
         # VIA GRAPH
         print(f'{datetime.now()}\t plotting piechart_graph')
         fig,ax1, ax2 = via.plot_piechart_viagraph(via_object=v0, reference_labels=time_series_labels, show_legend=False, ax_text=False,
-                                headwidth_arrow=0.8, highlight_terminal_clusters=False, cmap_piechart='plasma', cmap='viridis',
+                                headwidth_arrow=0.15, highlight_terminal_clusters=False, cmap_piechart='plasma', cmap='viridis',
                                 pie_size_scale=0.6,size_node_notpiechart=1)
         fig.set_size_inches(12, 5)
         via_img = BytesIO()
