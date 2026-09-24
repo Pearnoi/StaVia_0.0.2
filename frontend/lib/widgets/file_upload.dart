@@ -1,33 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:stavia_ff/services/upload_service.dart';
+import 'package:provider/provider.dart';
+import '../viewmodel/all_viewmodel.dart';
+import '../services/job_service.dart';
 
-class FilePickerTest extends StatefulWidget {
-  final VoidCallback? onUploadStart;
-  final Function(Map<String, dynamic>)? onUploadComplete;
-  final Function(String)? onUploadError;
-  
-  const FilePickerTest({
-    super.key,
-    this.onUploadStart,
-    this.onUploadComplete,
-    this.onUploadError,
-  });
-
-  @override
-  State<FilePickerTest> createState() => _FilePickerTestState();
-}
-
-class _FilePickerTestState extends State<FilePickerTest> {
-  bool _isLoading = false;
-  String? _errorMessage;
+class FilePickerTest extends StatelessWidget {
+  const FilePickerTest({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = context.watch<PipelineViewModel>();
+    final isLoading = viewModel.isLoading;
+    final errorMessage = viewModel.errorMessage;
+
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         ElevatedButton.icon(
-          onPressed: _isLoading ? null : _pickAndUploadFile,
-          icon: _isLoading
+          onPressed: isLoading ? null : () => _handlePickAndUpload(context),
+          icon: isLoading
               ? const SizedBox(
                   width: 20,
                   height: 20,
@@ -37,21 +27,21 @@ class _FilePickerTestState extends State<FilePickerTest> {
                   ),
                 )
               : const Icon(Icons.upload_file),
-          label: Text(_isLoading ? 'Uploading...' : 'Pick and Upload File'),
+          label: Text(isLoading ? 'Uploading...' : 'Pick and Upload File'),
           style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(50),
-              backgroundColor: Colors.black38,
-              foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(50),
+            backgroundColor: Colors.black38,
+            foregroundColor: Colors.white,
           ),
         ),
-        if (_errorMessage != null) ...[
+        if (errorMessage != null) ...[
           const SizedBox(height: 12),
           Card(
             color: Colors.red.shade50,
             child: Padding(
               padding: const EdgeInsets.all(12.0),
               child: Text(
-                _errorMessage!,
+                errorMessage,
                 style: TextStyle(color: Colors.red.shade700),
               ),
             ),
@@ -61,70 +51,33 @@ class _FilePickerTestState extends State<FilePickerTest> {
     );
   }
 
-  Future<void> _pickAndUploadFile() async {
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-  });
+  Future<void> _handlePickAndUpload(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final viewModel = context.read<PipelineViewModel>();
+    final file = await pickFile();
 
-  widget.onUploadStart?.call();
+    if (file == null) return;
 
-  try {
-    final file = await UploadService.pickFile();
-    
-    if (file != null) {
-       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('⬆️ Uploading ${file.name}...'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-      
-      final result = await UploadService.uploadFile(file);
-      
-      if (result != null) {
-        setState(() {
-          _isLoading = false;
-        });
-        widget.onUploadComplete?.call(result);
-        
-        // Show success snackbar
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ ${result['message'] ?? 'Upload successful!'}'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } else {
-      setState(() {
-        _isLoading = false;
-      });
-      
-      // Show no file selected snackbar
-      ScaffoldMessenger.of(context).showSnackBar(
+    await viewModel.handleFileUpload(file);
+
+    if (!context.mounted) return;
+
+    if (viewModel.status == PipelineStatus.uploadSuccess) {
+      messenger.showSnackBar(
         const SnackBar(
-          content: Text('No file selected'),
+          content: Text('✅ Upload successful!'),
+          backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
       );
+    } else if (viewModel.errorMessage != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: ${viewModel.errorMessage}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
-  } catch (e) {
-    setState(() {
-      _errorMessage = e.toString();
-      _isLoading = false;
-    });
-    widget.onUploadError?.call(e.toString());
-    
-    // Show error snackbar
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('❌ Error: ${e.toString()}'),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
   }
-}
 }

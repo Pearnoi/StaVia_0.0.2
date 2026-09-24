@@ -1,137 +1,116 @@
 import pyVIA.core as via 
 import pandas as pd 
-import numpy as np 
 import scanpy as sc 
-import scanpy.external as sce 
-import anndata as ad 
-import umap, phate, warnings, sys, os, glob, random, csv
-import matplotlib.pyplot as plt 
+import umap, phate, warnings, random
 import matplotlib as mpl 
+import traceback
+import numpy as np
 mpl.use('Agg')
-from matplotlib.pyplot import rc_context 
-import seaborn as sns 
-from sklearn.manifold import TSNE 
 warnings.filterwarnings('ignore') 
-from importlib import reload 
-from collections import defaultdict
-import scvelo as scv
 
-from flask import jsonify
-from io import BytesIO
-import base64
-import json
+from params import JobConfig, VIAParams
+from anndata import AnnData
 
-def run_via_analysis(adata, params, file_data = None):
+def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = None):
     try:
-        knn = int(params.get('knn', 30))
-        cluster_graph_pruning = float(params.get('cluster_graph_pruning', 0.15))
-        edgepruning_clustering_resolution = float(params.get('edgepruning_clustering_resolution', 0.15))
-        edgebundle_pruning = float(params.get('edgebundle_pruning', 0.15))
-        true_label = params.get('true_label', None)
-        root_user = params.get('root_user', None)
-        time_series_labels = params.get('time_series_labels', None)
-        adata_obs = params.get('adata_obs', None)
-      
-        data_categories = params.get('par_option', [])
+        knn = params.knn
+        cluster_graph_pruning = params.clusterGraphPruning
+        edgepruning_clustering_resolution = params.edgePruningClusteringResolution
+        edgebundle_pruning = params.edgeBundlePruning
+        adata_obs = params.obs
+
+        data_categories = params.parOption or []
         time_series = 'time-series' in data_categories
         use_velocity = 'rna-velocity' in data_categories
         do_spatial = 'spatial-temporal' in data_categories
         do_cytometry = 'cytometry' in data_categories
-        
-        if file_data is not None: 
-            time_series_file = file_data.get('time_series')              
-            velocity_matrix_file = file_data.get('velocity')            
-            gene_matrix_file = file_data.get('gene_matrix')              
-            root_upload_file = file_data.get('root')                     
-            true_label_file = file_data.get('annotation')               
-            spatial_coords_file = file_data.get('spatial')               
-            cytometry_file_features = file_data.get('cytometry_features') 
-            cytometry_file_phase = file_data.get('cytometry_phase')   
 
-        results = {}
+        metadata = file_data.metadata if (file_data and file_data.metadata) else {}
+
+        ###########################
+         # ----- Avoid data mismatch -----
+        def align_data_with_adata(data, adata):
+            if data is None:
+                return None
+            
+            if isinstance(data, pd.DataFrame):
+                # Use cell_id as index. Note that the files uploaded by the user should have a column named 'cell_id' that matches the cell names in adata.obs_names.
+                if 'cell_id' in data.columns:
+                    data = data.set_index('cell_id')
+                
+                # Only keep the cells that are present in both data and adata
+                valid_cells = data.index.intersection(adata.obs_names)
+
+                if len(valid_cells) == 0:
+                    print(f"Warning: No matching cells found in data")
+                    return None
+                
+                # Sort the data to match the order of adata.obs_names
+                aligned_data = data.loc[adata.obs_names].copy()
+                print(f"Aligned data: {len(aligned_data)} cells")
+                return aligned_data
+            
+            elif isinstance(data, np.ndarray):
+                # If data is a numpy array, we assume it is already aligned with adata. We can check the length.
+                if len(data) == adata.n_obs:
+                    return data
+                else:
+                    print(f"Warning: Data length {len(data)} does not match adata cells {adata.n_obs}")
+                    return None
+
+            #TODO: align genes.
+            return data
+        ##############################
+
+        #####no need to align#####
+        root_upload_content = metadata.get('root')
+        velocity_matrix_content = metadata.get('velocity')
+        cytometry_file_features = metadata.get('cytometry_features')          
+        cytometry_file_content = metadata.get('cytometry_phase')
+
+        #####need to align#####
+        time_series_content = align_data_with_adata(metadata.get('time_series'), adata)
+        true_label_content = align_data_with_adata(metadata.get('annotation'), adata)
+        spatial_coords_content = align_data_with_adata(metadata.get('spatial'), adata)
+
+        
 
         true_label = None
-        if true_label_file:
-            try:
-                true_label = []
-                reader = csv.reader(true_label_file)
-                for row in reader:
-                    if row:  
-                        true_label.append(row[0])  
-                if all(item.lstrip('-').isdigit() for item in true_label):
-                    true_label = [int(item) for item in true_label]
-            except Exception as e:
-                print(f"Error processing true_label CSV: {e}")
-                true_label = None
+        if true_label_content is not None:
+            true_label = true_label_content
         else: 
-            if true_label and isinstance(true_label, str):
-                if true_label.lower() == 'none' and adata_obs.lower() == 'none':
-                    true_label = None
-                elif true_label.lower() != 'none' and adata_obs.lower() == 'none':
-                    try:
-                        true_label = [item.strip() for item in true_label.split(',')]
-                        if all(item.lstrip('-').isdigit() for item in true_label):
-                            true_label = [int(item) for item in true_label]
-                    except Exception as e:
-                        print(f"Error processing true_label: {e}")
-                        true_label = None
-                else:
-                    if "annotation" in adata.obs:
-                        true_label = adata.obs["annotation"]
-                    if "PARC" in adata.obs:
-                        true_label = adata.obs["PARC"]
-                    else: 
-                        true_label = adata.obs[adata_obs]
+            if "annotation" in adata.obs:
+                true_label = adata.obs["annotation"]
+            if "PARC" in adata.obs:
+                true_label = adata.obs["PARC"]
+            else: 
+                true_label = adata.obs.get(adata_obs)
+        if isinstance(true_label, pd.DataFrame):
+            true_label = true_label.iloc[:, 0]
+         
+        if time_series_content is not None:
+            time_series_labels = time_series_content
+        else:
+            time_series_content = None 
 
-        if time_series_file:
-            try:
-                time_series_labels = []
-                reader = csv.reader(time_series_file)
-                for row in reader:
-                    if row:  
-                        time_series_labels.append(row[0])  
-                if all(item.lstrip('-').isdigit() for item in time_series_labels):
-                    time_series_labels = [int(item) for item in time_series_labels]
-            except Exception as e:
-                print(f"Error processing time series CSV: {e}")
-                time_series_labels = None
-        else: 
-            if time_series_labels and isinstance(time_series_labels, str):
-                if time_series_labels.lower() == 'none':
-                    time_series_labels = None
-                else:
-                    try:
-                        time_series_labels = [int(i.strip()) for i in time_series_labels.split(',') 
-                                        if i.strip().isdigit()]
-                    except Exception as e:
-                        print(f"Error processing time_series_labels: {e}")
-                        time_series_labels = None
+        dataset_type = ''
+        if root_upload_content is not None:
+            if isinstance(root_upload_content, pd.DataFrame):
+                root_user = root_upload_content.iloc[:, 0].tolist()
+            else:
+                root_user = list(root_upload_content)
+            print("root_user:", root_user)
+            if isinstance(root_user[0],str):
+                dataset_type = 'group'
+
+        else:
+            gene = random.choice(adata.var_names.tolist())
+            print(f"DEBUG: Selected random gene: '{gene}'")
+            print(f"DEBUG: Gene type: {type(gene)}")
+            print(f"DEBUG: Gene in var_names? {gene in adata.var_names}")
+            root_user = [adata[:, gene].X.argmax()]
         
-        if root_upload_file:
-            try:
-                root_user = []
-                reader = csv.reader(root_upload_file)
-                for row in reader:
-                    if row:  
-                        root_user.append(row[0])  
-                if all(item.lstrip('-').isdigit() for item in root_user):
-                    root_user = [int(item) for item in root_user]
-            except Exception as e:
-                print(f"Error processing root file CSV: {e}")
-                root_user = None
-        else: 
-            # Set root user if not provided
-            if str(root_user).lower() != 'none': 
-                root_user = [i.strip() for i in root_user.split(',')]
-            elif not root_user or str(root_user).lower() == 'none':
-                # Random the gene if None
-                gene = random.choice(adata.var_names.tolist())
-                print(f"DEBUG: Selected random gene: '{gene}'")
-                print(f"DEBUG: Gene type: {type(gene)}")
-                print(f"DEBUG: Gene in var_names? {gene in adata.var_names}")
-                root_user = [adata[:, gene].X.argmax()]
-        
-        # INITIALIZE PARAMETERS
+        # ------- Initialize Parameters --------
         n_pcs = 50
         ncomp = 50 
         random_seed = 0 
@@ -140,18 +119,20 @@ def run_via_analysis(adata, params, file_data = None):
         memory = 50
         random_seed = 0
 
+        # ----- Time Series Analysis --------
         if time_series: 
-            time_series_labels=time_series_labels
+            time_series_labels = time_series_labels
         else:
-            time_series_labels=None
+            time_series_labels = None
 
+        # ------- RNA Velocity ----------
         velocity_matrix = None
         gene_matrix = adata.X.todense() if hasattr(adata.X, 'todense') else adata.X
         velo_weight = 0
 
-        if use_velocity and velocity_matrix_file is not None:
+        if use_velocity and velocity_matrix_content is not None:
             try:
-                velocity_df = velocity_matrix_file
+                velocity_df = velocity_matrix_content
                 
                 # 1. Match cells
                 common_cells = velocity_df.index.intersection(adata.obs_names)
@@ -170,23 +151,18 @@ def run_via_analysis(adata, params, file_data = None):
                 adata = adata[:, common_genes]
                 
                 # 3. Convert to matrices
-                velocity_matrix = velocity_df.values
                 gene_matrix = adata.X.toarray() if hasattr(adata.X, 'toarray') else adata.X
-                
+                velocity_matrix = velocity_df.values
                 velo_weight = 0.5
-                
-                print(f"✓ Velocity loaded: {len(common_cells)} cells, {len(common_genes)} genes")
-                
+                    
             except Exception as e:
-                print(f"✗ Velocity failed: {e}")
                 velocity_matrix = None
                 velo_weight = 0
 
+        # --------- Spatial Analysis -----------
         if do_spatial:
-            
-            # Add text input?
-            if spatial_coords_file:
-                coords = pd.read_csv(spatial_coords_file) 
+            if spatial_coords_content is not None:
+                coords = spatial_coords_content.to_numpy()
             else:
                 coords=adata.obsm['X_pca'] 
 
@@ -205,6 +181,7 @@ def run_via_analysis(adata, params, file_data = None):
             coords = None  
             spatial_weight = 0
 
+        # --------- Cytometry Analysis ------------
         if do_cytometry:
             print(f"Type of cytometry_file: {type(cytometry_file_features)}")
             try:
@@ -216,7 +193,7 @@ def run_via_analysis(adata, params, file_data = None):
                 
                 df = df.dropna()
                 print(f'Loaded cytometry file with shape: {df.shape}')
-                true_label = cytometry_file_phase
+                true_label = cytometry_file_content
                 true_label = list(true_label['phase'].values.flatten())
                 print('There are ', len(true_label), 'MCF7 cells and ', df.shape[1], 'features')
                 ad = sc.AnnData(df)
@@ -254,7 +231,6 @@ def run_via_analysis(adata, params, file_data = None):
                 true_label = [cell_phase_dict[i] for i in true_label]
             except Exception as e:
                 print(f"Error processing cytometry CSV: {e}")
-                import traceback
                 traceback.print_exc()
                 knn = 20
                 random_seed = 1
@@ -264,11 +240,12 @@ def run_via_analysis(adata, params, file_data = None):
 
         if 'PARC' in adata.obs.columns: 
             embedding = adata.obs['PARC']
-            true_label = adata.obs['annotations']
+            true_label = adata.obs['annotation']
         else:
             embedding = adata.obsm['X_pca'][:,:ncomp]
     
         print('RUN VIA')
+
         v0 = via.VIA(embedding, true_label = true_label, memory = memory,
                     edgepruning_clustering_resolution=edgepruning_clustering_resolution, 
                     edgepruning_clustering_resolution_local=1, knn=knn,
@@ -284,28 +261,28 @@ def run_via_analysis(adata, params, file_data = None):
                     x_lazy=0.99, alpha_teleport=0.99, 
                     viagraph_decay = 1.0, 
                     preserve_disconnected=False,
-                    do_spatial_knn=do_spatial, do_spatial_layout= do_spatial, spatial_coords = coords, spatial_knn=spatial_knn_trajectory)
+                    do_spatial_knn=do_spatial, do_spatial_layout= do_spatial, spatial_coords = coords, spatial_knn=spatial_knn_trajectory,
+                    dataset = dataset_type)
         v0.run_VIA()
         if 'X_umap' in adata.obsm:
             v0.embedding = adata.obsm['X_umap'][:,:2]
         elif 'X_pca' in adata.obsm:
             v0.embedding = adata.obsm['X_pca'][:,:2]
-        results['via_obj'] = v0
 
-        results['adata'] = adata
-
-        return results
+        return {'via_obj': v0, 'adata': adata}
     
     except Exception as e:
-        return {'error': str(e)}
+        print("=== ERROR INSIDE RUN_VIA_ANALYSIS ===")
+        traceback.print_exc()
+        raise RuntimeError(f"run_via_analysis failed: {str(e)}") from e
     
-# Get embedding value for cytometry
-def via_analysis_embedding(params, file_data=None):
+# ------- Get embedding value for cytometry -----------
+def via_analysis_embedding(params: VIAParams, file_data: JobConfig=None):
     print("Calculating embedding")
-    data_categories = params.get('par_option', [])
+    data_categories = params.parOption or []
     do_cytometry = 'cytometry' in data_categories
-    if file_data is not None: 
-        cytometry_file_features = file_data.get('cytometry-features-upload')
+    metadata = file_data.metadata if (file_data and file_data.metadata) else {}
+    cytometry_file_features = metadata.get('cytometry_features')
 
     if do_cytometry:
         # Load and clean the cytometry data

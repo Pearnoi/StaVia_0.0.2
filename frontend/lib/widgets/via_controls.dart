@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
-import '../services/analyze_service.dart';
+import 'package:provider/provider.dart';
+import '../viewmodel/all_viewmodel.dart';
+import '../parameters/params.dart';
 import 'plot_display.dart';
 
 class ViaControls extends StatefulWidget {
   final String jobId;
   final Function(Map<String, String>)? onPlotsGenerated;
 
-  const ViaControls({super.key, required this.jobId, this.onPlotsGenerated,});
+  const ViaControls({
+    super.key, 
+    required this.jobId, 
+    this.onPlotsGenerated,
+  });
 
   @override
   State<ViaControls> createState() => _ViaControlsState();
@@ -33,47 +39,43 @@ class _ViaControlsState extends State<ViaControls> {
   bool _spatialTemporal = false;
   bool _cytometry = false;
 
-  // UI State
-  bool _isLoading = false;
-  String? _error;
-  Map<String, dynamic>? _analysisResult;
-
-  Future<void> _runAnalysis() async {
-    // Build par_option list from switches
+  Future<void> _runAnalysis(PipelineViewModel viewModel) async {
     List<String> parOption = [];
     if (_timeSeries) parOption.add('time-series');
     if (_rnaVelocity) parOption.add('rna-velocity');
     if (_spatialTemporal) parOption.add('spatial-temporal');
     if (_cytometry) parOption.add('cytometry');
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _analysisResult = null;
-    });
+    final params = AnalyzeParams(
+      jobId: widget.jobId,
+      varNames: _varNamesController.text.isNotEmpty 
+          ? _varNamesController.text 
+          : null,
+      knn: _knn.round(),
+      clusterGraphPruning: _clusterGraphPruning,
+      edgebundlePruning: _edgebundlePruning,
+      edgepruningClusteringResolution: _edgepruningClusteringResolution,
+      dpi: _selectedDpi,
+      obs: _obsController.text.isNotEmpty 
+          ? _obsController.text 
+          : null,
+      parOption: parOption,
+    );
 
-    try {
-      final result = await AnalyzeService.runAnalysis(
-        jobId: widget.jobId,
-        varNames: _varNamesController.text.isNotEmpty 
-            ? _varNamesController.text 
-            : null,
-        knn: _knn.round(),
-        clusterGraphPruning: _clusterGraphPruning,
-        edgebundlePruning: _edgebundlePruning,
-        edgepruningClusteringResolution: _edgepruningClusteringResolution,
-        dpi: _selectedDpi,
-        obs: _obsController.text.isNotEmpty 
-            ? _obsController.text 
-            : null,
-        parOption: parOption,
+    await viewModel.handleAnalysis(params);
+
+    if (!mounted) return;
+
+    if (viewModel.status == PipelineStatus.error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Analysis failed: ${viewModel.errorMessage}'),
+          backgroundColor: Colors.red,
+        ),
       );
-
-      setState(() {
-        _analysisResult = result;
-        _isLoading = false;
-      });
-
+    } else if (viewModel.lastAnalysisResult != null) {
+      final result = viewModel.lastAnalysisResult!;
+      
       if (widget.onPlotsGenerated != null && result['plots'] != null) {
         final plots = Map<String, dynamic>.from(result['plots']);
         final Map<String, String> stringPlots = {};
@@ -84,7 +86,6 @@ class _ViaControlsState extends State<ViaControls> {
         });
         if (stringPlots.isNotEmpty) {
           widget.onPlotsGenerated!(stringPlots);
-          print('✅ VIA plots sent to parent: ${stringPlots.keys}');
         }
       }
 
@@ -95,29 +96,6 @@ class _ViaControlsState extends State<ViaControls> {
           duration: Duration(seconds: 2),
         ),
       );
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Analysis failed: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _handleVIAResult(Map<String, dynamic> result) {
-    print('✅ VIA analysis complete');
-    
-    // Extract plots from VIA result
-    final plots = Map<String, String>.from(result['plots'] ?? {});
-    
-    // Notify parent
-    if (widget.onPlotsGenerated != null && plots.isNotEmpty) {
-      widget.onPlotsGenerated!(plots);
     }
   }
 
@@ -128,12 +106,10 @@ class _ViaControlsState extends State<ViaControls> {
     super.dispose();
   }
 
-  Widget _buildPlots() {
+  Widget _buildPlots(Map<String, dynamic>? analysisResult) {
     try {
-      // Get the plots data safely
-      final plotsData = _analysisResult?['plots'];
+      final plotsData = analysisResult?['plots'];
       
-      // If no plots data, show success message
       if (plotsData == null) {
         return Container(
           padding: const EdgeInsets.all(16),
@@ -157,14 +133,11 @@ class _ViaControlsState extends State<ViaControls> {
         );
       }
 
-      // If plotsData is already a Map, use it directly
       Map<String, dynamic> plots = {};
-      
       if (plotsData is Map) {
         plots = Map<String, dynamic>.from(plotsData);
       } 
       
-      // If plots is empty, show success message
       if (plots.isEmpty) {
         return Container(
           padding: const EdgeInsets.all(16),
@@ -188,10 +161,8 @@ class _ViaControlsState extends State<ViaControls> {
         );
       }
 
-      // Build all plots
       List<Widget> plotWidgets = [];
 
-      // Helper to add plot
       void addPlot(String key, String title, {double height = 400}) {
         if (plotWidgets.isNotEmpty) {
           plotWidgets.add(const SizedBox(width: 16)); 
@@ -213,7 +184,6 @@ class _ViaControlsState extends State<ViaControls> {
         }
       }
 
-      // Add all available plots
       addPlot('atlas', 'VIA Atlas Embedding');
       addPlot('via', 'VIA Graph (Piechart)', height: 500);
       addPlot('lineage', 'Lineage Probability');
@@ -231,7 +201,6 @@ class _ViaControlsState extends State<ViaControls> {
       addPlot('velocity_error', 'Velocity Error', height: 300);
       addPlot('cyto_error', 'Cytometry Error', height: 300);
 
-      // If no plots were added, show message
       if (plotWidgets.isEmpty) {
         return Container(
           padding: const EdgeInsets.all(16),
@@ -255,7 +224,6 @@ class _ViaControlsState extends State<ViaControls> {
         );
       }
 
-      // Return all plots
       return Row(
         children: [
           const SizedBox(width: 16),
@@ -264,7 +232,6 @@ class _ViaControlsState extends State<ViaControls> {
       );
 
     } catch (e) {
-      print('❌ Error building plots: $e');
       return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -282,6 +249,11 @@ class _ViaControlsState extends State<ViaControls> {
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = context.watch<PipelineViewModel>();
+    final isLoading = viewModel.isLoading;
+    final analysisResult = viewModel.lastAnalysisResult;
+    final errorMessage = viewModel.errorMessage;
+
     return Column(
       children: [
         Row(
@@ -291,7 +263,6 @@ class _ViaControlsState extends State<ViaControls> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Title
                   const Text(
                     '🧬 VIA Analysis',
                     style: TextStyle(
@@ -309,9 +280,6 @@ class _ViaControlsState extends State<ViaControls> {
                   ),
                   const SizedBox(height: 16),
               
-                  // ============================================
-                  // 1. TEXT FIELDS (var_names and obs)
-                  // ============================================
                   Row(
                     children: [
                       Expanded(
@@ -339,9 +307,6 @@ class _ViaControlsState extends State<ViaControls> {
                   ),
                   const SizedBox(height: 16),
               
-                  // ============================================
-                  // 2. SLIDERS
-                  // ============================================
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -350,7 +315,6 @@ class _ViaControlsState extends State<ViaControls> {
                     ),
                     child: Column(
                       children: [
-                        // knn
                         Row(
                           children: [
                             SizedBox(
@@ -373,8 +337,6 @@ class _ViaControlsState extends State<ViaControls> {
                             ),
                           ],
                         ),
-              
-                        // cluster_graph_pruning
                         Row(
                           children: [
                             SizedBox(
@@ -399,8 +361,6 @@ class _ViaControlsState extends State<ViaControls> {
                             ),
                           ],
                         ),
-              
-                        // edgebundle_pruning
                         Row(
                           children: [
                             SizedBox(
@@ -425,8 +385,6 @@ class _ViaControlsState extends State<ViaControls> {
                             ),
                           ],
                         ),
-              
-                        // edgepruning_clustering_resolution
                         Row(
                           children: [
                             SizedBox(
@@ -456,9 +414,6 @@ class _ViaControlsState extends State<ViaControls> {
                   ),
                   const SizedBox(height: 16),
               
-                  // ============================================
-                  // 3. DPI OPTIONS (Choosable Tabs)
-                  // ============================================
                   Row(
                     children: [
                       const Text(
@@ -481,14 +436,11 @@ class _ViaControlsState extends State<ViaControls> {
                             backgroundColor: Colors.grey.shade200,
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                   const SizedBox(height: 16),
               
-                  // ============================================
-                  // 4. PAR OPTIONS (Switches)
-                  // ============================================
                   const Text(
                     'Analysis Types:',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
@@ -552,7 +504,7 @@ class _ViaControlsState extends State<ViaControls> {
               ),
             ),
         
-            if (_analysisResult != null && !_isLoading) ...[
+            if (analysisResult != null && !isLoading) ...[
               Expanded(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -561,9 +513,9 @@ class _ViaControlsState extends State<ViaControls> {
                     children: [
                       const SizedBox(width: 16),
                       Container(
-                        child: _buildPlots(),
+                        child: _buildPlots(analysisResult),
                       ),
-                    ]
+                    ],
                   ),
                 ),
               ),
@@ -574,8 +526,8 @@ class _ViaControlsState extends State<ViaControls> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _runAnalysis,
-            icon: _isLoading
+            onPressed: isLoading ? null : () => _runAnalysis(viewModel),
+            icon: isLoading
                 ? const SizedBox(
                     width: 20,
                     height: 20,
@@ -585,7 +537,7 @@ class _ViaControlsState extends State<ViaControls> {
                     ),
                   )
                 : const Icon(Icons.play_arrow),
-            label: Text(_isLoading ? 'Running VIA...' : 'Run VIA Analysis'),
+            label: Text(isLoading ? 'Running VIA...' : 'Run VIA Analysis'),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size.fromHeight(50),
               backgroundColor: Colors.deepPurple,
@@ -595,7 +547,7 @@ class _ViaControlsState extends State<ViaControls> {
         ),
         const SizedBox(height: 16),
     
-        if (_error != null)
+        if (errorMessage != null)
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -604,7 +556,7 @@ class _ViaControlsState extends State<ViaControls> {
               border: Border.all(color: Colors.red.shade200),
             ),
             child: Text(
-              'Error: $_error',
+              'Error: $errorMessage',
               style: TextStyle(color: Colors.red.shade700),
             ),
           ),
