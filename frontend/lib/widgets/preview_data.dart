@@ -43,13 +43,8 @@ class _PreviewDataState extends State<PreviewData> {
       options.addAll(obsKeys.map((key) => '$key'));
     }
 
-    final varNames = widget.adataInfo?['var_keys'] as List? ?? [];
-    if (varNames.isNotEmpty) {
-      options.addAll(varNames.map((key) => '$key'));
-    }
-
     if (options.isEmpty) {
-      return ['No observations or variables available'];
+      return ['No observations available'];
     }
     return options.toList();
   }

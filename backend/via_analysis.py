@@ -73,8 +73,6 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
         true_label_content = align_data_with_adata(metadata.get('annotation'), adata)
         spatial_coords_content = align_data_with_adata(metadata.get('spatial'), adata)
 
-        
-
         true_label = None
         if true_label_content is not None:
             true_label = true_label_content
@@ -87,11 +85,6 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
                 true_label = adata.obs.get(adata_obs)
         if isinstance(true_label, pd.DataFrame):
             true_label = true_label.iloc[:, 0]
-         
-        if time_series_content is not None:
-            time_series_labels = time_series_content
-        else:
-            time_series_content = None 
 
         dataset_type = ''
         if root_upload_content is not None:
@@ -121,7 +114,7 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
 
         # ----- Time Series Analysis --------
         if time_series: 
-            time_series_labels = time_series_labels
+            time_series_labels = time_series_content 
         else:
             time_series_labels = None
 
@@ -195,7 +188,6 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
                 print(f'Loaded cytometry file with shape: {df.shape}')
                 true_label = cytometry_file_content
                 true_label = list(true_label['phase'].values.flatten())
-                print('There are ', len(true_label), 'MCF7 cells and ', df.shape[1], 'features')
                 ad = sc.AnnData(df)
                 ad.var_names = df.columns
 
@@ -207,7 +199,7 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
 
                 df_X.columns = [i for i in ad.var_names]
                 
-                # # Scale specific features if they exist (like in reference code)
+                # Scale specific features if they exist (like in reference code)
                 if 'Area' in df_X.columns:
                     df_X['Area'] = df_X['Area'] * 3
                 if 'Dry Mass' in df_X.columns:
@@ -222,13 +214,9 @@ def run_via_analysis(adata: AnnData, params: VIAParams, file_data: JobConfig = N
                 sc.tl.pca(ad, svd_solver='arpack')
                 ad.var_names = df_X.columns
                 print('Applied PCA')
-
-                cell_dict = {'T1_M1': 'yellow', 'T2_M1': 'yellowgreen', 'T1_M2': 'orange', 'T2_M2': 'darkgreen', 'T1_M3': 'red', 'T2_M3': 'blue'}
-                cell_phase_dict = {'T1_M1': 'G1', 'T2_M1': 'G1', 'T1_M2': 'S', 'T2_M2': 'S', 'T1_M3': 'M/G2', 'T2_M3': 'M/G2'}
-
+                
                 knn = 20
                 random_seed = 1
-                true_label = [cell_phase_dict[i] for i in true_label]
             except Exception as e:
                 print(f"Error processing cytometry CSV: {e}")
                 traceback.print_exc()
