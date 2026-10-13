@@ -164,31 +164,30 @@ class _ViaControlsState extends State<ViaControls> {
       List<Widget> plotWidgets = [];
 
       void addPlot(String key, String title, {double height = 400}) {
+        final data = plots[key];
+        if (data == null || data is! String || data.isEmpty) return;   
+
         if (plotWidgets.isNotEmpty) {
-          plotWidgets.add(const SizedBox(width: 16)); 
+          plotWidgets.add(SizedBox(width: 16, height: height));        
         }
-        if (plots[key] != null && plots[key] is String) {
-          final imageData = plots[key] as String;
-          if (imageData.isNotEmpty) {
-            plotWidgets.add(
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: PlotDisplay(
-                  base64Image: imageData,
-                  title: title,
-                  height: height,
-                ),
+
+        plotWidgets.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16.0),
+            child: SizedBox(
+              height: height,                                           
+              child: PlotDisplay(
+                base64Image: data,
+                title: title,
+                height: height,
               ),
-            );
-          }
-        }
+            ),
+          ),
+        );
       }
 
       addPlot('atlas', 'VIA Atlas Embedding');
-      addPlot('via', 'VIA Graph (Piechart)', height: 500);
-      addPlot('lineage', 'Lineage Probability');
-      addPlot('heat', 'Gene Trend Heatmaps');
-      addPlot('exp', 'Gene Expression');
+      addPlot('via', 'VIA Graph (Piechart)', height: 400);
       addPlot('em', 'Velocity Embedding');
       addPlot('grid', 'Velocity Grid');
       addPlot('cl', 'Velocity Graph (Clusters)');
@@ -224,11 +223,14 @@ class _ViaControlsState extends State<ViaControls> {
         );
       }
 
-      return Row(
-        children: [
-          const SizedBox(width: 16),
-          ...plotWidgets,
-        ],
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,  
+          children: [
+            const SizedBox(width: 16),
+            ...plotWidgets,
+          ],
+        ),
       );
 
     } catch (e) {

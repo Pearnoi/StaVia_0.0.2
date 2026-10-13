@@ -65,6 +65,7 @@ def more_plot(lineages, genes, v0, adata):
         return {'error': str(e)}
 
 def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, embedding=None):
+    plots = {}
     try: 
         print("=== VIA_PLOT FUNCTION START ===")
         print(f"v0 is None: {v0 is None}")
@@ -76,14 +77,18 @@ def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, e
         dpi = params.dpi
         knn = params.knn
         time_series_labels = file_data.metadata.get("time_series")
-        true_label = file_data.metadata.get("annotation")
+
+        true_label_raw = file_data.metadata.get("annotation")
+        if true_label_raw is not None and hasattr(true_label_raw, 'columns'):
+            col = 'phase' if 'phase' in true_label_raw.columns else true_label_raw.columns[0]
+            true_label = true_label_raw[col].tolist()
+        else:
+            true_label = None
         
         data_categories = params.parOption
         use_velocity = 'rna-velocity' in data_categories
         do_spatial = 'spatial-temporal' in data_categories
         do_cytometry = 'cytometry' in data_categories
-
-        plots = {}
 
         # ATLAS PLOT
         try:
@@ -383,4 +388,6 @@ def via_plot(params: VIAParams, v0, file_data: JobConfig, adata: AnnData=None, e
         return plots
     
     except Exception as e:
-        return {'error': str(e)}, 500
+        traceback.print_exc()
+        plots['fatal_error'] = str(e)
+        return plots  

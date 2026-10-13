@@ -43,11 +43,11 @@ class PreviewParams {
   Map<String, dynamic> toJson() {
     return {
       'em': em.join(','),
-      'color_umap': colorUmap,
-      'color_scheme': colorScheme,
-      'n_neighbors': nNeighbors,
-      'n_components': nComponents,
-      'min_dist': minDist,
+      'colorUmap': colorUmap,
+      'colorScheme': colorScheme,
+      'nNeighbors': nNeighbors,
+      'nComps': nComponents,
+      'minDist': minDist,
       'spread': spread,
     };
   }
@@ -105,15 +105,15 @@ class AnalyzeParams {
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> json = {
       'knn': knn,
-      'cluster_graph_pruning': clusterGraphPruning,
-      'edgebundle_pruning': edgebundlePruning,
-      'edgepruning_clustering_resolution': edgepruningClusteringResolution,
+      'clusterGraphPruning': clusterGraphPruning,
+      'edgeBundlePruning': edgebundlePruning,
+      'edgePruningClusteringResolution': edgepruningClusteringResolution,
       'dpi': dpi,
-      'par_option': parOption,
+      'parOption': parOption,
     };
 
     if (varNames != null && varNames!.isNotEmpty) {
-      json['var_names'] = varNames;
+      json['varNames'] = varNames;
     }
     if (obs != null && obs!.isNotEmpty) {
       json['obs'] = obs;
